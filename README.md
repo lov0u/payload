@@ -74,8 +74,8 @@ docker-compose logs -f payload
 
 ## 访问地址
 
-- 管理后台：https://payload.ra0.cn/admin
-- API：https://payload.ra0.cn/api
+- 管理后台：https://ra0.cn
+- API：https://ra0.cn/ai
 
 ## 说明
 
