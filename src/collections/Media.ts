@@ -1,7 +1,5 @@
 import type { CollectionConfig } from 'payload'
 
-import { createFolderField, createTagField } from 'payload'
-
 export const Media: CollectionConfig = {
   slug: 'media',
   access: {
@@ -13,8 +11,24 @@ export const Media: CollectionConfig = {
       type: 'text',
       required: true,
     },
-    createFolderField({ relationTo: 'folders' }),
-    createTagField({ relationTo: 'tags' }),
   ],
-  upload: true,
+  upload: {
+    staticDir: 'media',
+    imageSizes: [
+      {
+        name: 'thumbnail',
+        width: 400,
+        height: 300,
+        position: 'centre',
+      },
+      {
+        name: 'card',
+        width: 768,
+        height: 512,
+        position: 'centre',
+      },
+    ],
+    adminThumbnail: 'thumbnail',
+    mimeTypes: ['image/*'],
+  },
 }
