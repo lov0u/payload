@@ -52,9 +52,11 @@ export const ModelUsageLogs: CollectionConfig = {
       type: 'select',
       options: [
         { label: '生成文章', value: 'generate_article' },
+        { label: '生成文章(重试)', value: 'generate_article_retry' },
         { label: '生成标题', value: 'generate_title' },
         { label: '生成摘要', value: 'generate_excerpt' },
         { label: '生成内链', value: 'generate_internal_links' },
+        { label: '扩词', value: 'expand_keywords' },
         { label: '其他', value: 'other' },
       ],
       label: '调用用途',
