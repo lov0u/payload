@@ -8,10 +8,12 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { siteId, configId, count = 1, triggerType = 'api' } = body
+    const { count = 1, triggerType = 'api' } = body
+    const siteId = Number(body.siteId)
+    const configId = Number(body.configId)
 
-    if (!siteId || !configId) {
-      return NextResponse.json({ error: 'siteId 和 configId 必填' }, { status: 400 })
+    if (!siteId || !configId || isNaN(siteId) || isNaN(configId)) {
+      return NextResponse.json({ error: 'siteId 和 configId 必填（数字）' }, { status: 400 })
     }
 
     const payload = await getPayload({ config: configPromise })

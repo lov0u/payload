@@ -7,14 +7,15 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { keywords, siteId, keywordType = 'seed', sourceType = 'manual' } = body
+    const { keywords, keywordType = 'seed', sourceType = 'manual' } = body
+    const siteId = Number(body.siteId)
 
     if (!keywords || !Array.isArray(keywords) || keywords.length === 0) {
       return NextResponse.json({ error: 'keywords 数组必填' }, { status: 400 })
     }
 
-    if (!siteId) {
-      return NextResponse.json({ error: 'siteId 必填' }, { status: 400 })
+    if (!siteId || isNaN(siteId)) {
+      return NextResponse.json({ error: 'siteId 必填（数字）' }, { status: 400 })
     }
 
     const payload = await getPayload({ config: configPromise })

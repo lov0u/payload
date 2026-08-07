@@ -8,10 +8,11 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { seedKeyword, siteId, count = 10 } = body
+    const { seedKeyword, count = 10 } = body
+    const siteId = Number(body.siteId)
 
-    if (!seedKeyword || !siteId) {
-      return NextResponse.json({ error: 'seedKeyword 和 siteId 必填' }, { status: 400 })
+    if (!seedKeyword || !siteId || isNaN(siteId)) {
+      return NextResponse.json({ error: 'seedKeyword 和 siteId 必填（siteId为数字）' }, { status: 400 })
     }
 
     const payload = await getPayload({ config: configPromise })
