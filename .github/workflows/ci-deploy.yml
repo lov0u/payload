@@ -1,0 +1,49 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Alibaba Cloud ACR
+        uses: docker/login-action@v3
+        with:
+          registry: crpi-e6ejb7mi9ku0ep4b.cn-shanghai.personal.cr.aliyuncs.com
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            crpi-e6ejb7mi9ku0ep4b.cn-shanghai.personal.cr.aliyuncs.com/lov0u/payload:latest
+            crpi-e6ejb7mi9ku0ep4b.cn-shanghai.personal.cr.aliyuncs.com/lov0u/payload:${{ github.sha }}
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to server via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /opt/payload-cms
+            docker login -u ${{ secrets.ACR_USERNAME }} -p ${{ secrets.ACR_PASSWORD }} crpi-e6ejb7mi9ku0ep4b.cn-shanghai.personal.cr.aliyuncs.com
+            docker pull crpi-e6ejb7mi9ku0ep4b.cn-shanghai.personal.cr.aliyuncs.com/lov0u/payload:latest
+            docker-compose down --remove-orphans || true
+            docker-compose up -d
+            docker image prune -f
+            echo "=== Deployment Complete ==="
+            docker ps | grep payload

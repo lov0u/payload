@@ -1,0 +1,10 @@
+node_modules/
+.next/
+.env
+.env.local
+*.tar
+pgdata/
+logs/
+.DS_Store
+Thumbs.db
+payload-types.ts
