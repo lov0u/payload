@@ -103,8 +103,17 @@ export async function chatCompletion(
 
       const msg = response.choices[0]?.message || {}
       let rawContent = msg.content || ''
+      
+      // 调试日志
+      console.log(`[OpenAI] 模型 ${modelConfig.name} 响应:`, JSON.stringify({
+        content: msg.content?.substring(0, 200),
+        reasoning_content: (msg as any).reasoning_content?.substring(0, 200),
+        hasContent: !!msg.content,
+        contentLength: msg.content?.length || 0,
+      }, null, 2))
+      
       if (!rawContent || rawContent.trim().length < 10) {
-        rawContent = msg.reasoning_content || ''
+        rawContent = (msg as any).reasoning_content || ''
         const lines = rawContent.split('\n').filter((l: string) => l.trim())
         rawContent = lines.slice(-5).join('\n')
       }
@@ -112,6 +121,8 @@ export async function chatCompletion(
         .replace(/^[\s\n]+/, '')
         .replace(/<think>[\s\S]*?<\/think>\s*/g, '')
         .trim()
+      
+      console.log(`[OpenAI] 处理后内容长度: ${cleanContent.length}, 前100字符: ${cleanContent.substring(0, 100)}`)
 
       return {
         content: cleanContent,
