@@ -6,8 +6,8 @@ WORKDIR /app
 # Copy dependency files
 COPY package.json ./
 
-# Install dependencies
-RUN npm install
+# Install dependencies with legacy-peer-deps to avoid conflicts
+RUN npm install --legacy-peer-deps
 
 # Copy source code
 COPY . .
@@ -33,7 +33,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/src ./src
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
-COPY --from=builder /app/next.config.mjs ./next.config.mjs
+COPY --from=builder /app/next.config.ts ./next.config.ts
 
 EXPOSE 3000
 
