@@ -30,5 +30,14 @@ export default buildConfig({
     },
     push: true,
   }),
+  serverURL: process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:3000',
+  cors: [
+    process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:3000',
+    'https://payload.ra0.cn',
+  ],
+  csrf: [
+    process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:3000',
+    'https://payload.ra0.cn',
+  ],
   sharp,
 })
