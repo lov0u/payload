@@ -27,6 +27,99 @@ function escapeRegExp(str: string): string {
 }
 
 /**
+ * 清洗标题：去掉模型可能夹带的元指令废话（字数统计/序号/引号/旁注）。
+ * 返回第一行纯文本，并尽量提取包含关键词的干净片段。
+ */
+function stripTitleJunk(t: string): string {
+  return (t || '')
+    .replace(/^\s*[-–—]*\s*/, '')
+    .replace(/^\s*\d+[\.、)]\s*/, '')
+    .replace(/[“"”'‘’「」『』【】]/g, '')
+    .replace(/[（(][^（）()]*\d+\s*字[^（）()]*[）)]/g, '')
+    .replace(/\d+\s*个字?/g, '')
+    .replace(/字数[：:]?\s*\d+/g, '')
+    .replace(/\s*[-—–]\s*(简洁|优选|但|注|说明|即|或|及)[^，。\n]*$/g, '')
+    .replace(/[（）()]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function extractCleanTitle(raw: string, keyword: string): string {
+  const src = (raw || '').replace(/\r/g, '\n')
+  const lines = src.split(/\n+/).map((l) => l.trim()).filter(Boolean)
+  const cands: string[] = []
+  for (const line of lines) {
+    const byNum = line.split(/(?:\s|^)\d+[\.、)]\s+/)
+    for (const part of byNum) {
+      for (const sub of part.split(/\s*[-—–]\s*/)) {
+        const t = sub.trim()
+        if (t) cands.push(t)
+      }
+    }
+  }
+  const cleaned = cands.map(stripTitleJunk).filter(Boolean)
+  if (cleaned.length === 0) return ''
+  const scored = cleaned.map((t) => ({
+    t,
+    hasKw: t.includes(keyword),
+    bad: /\d/.test(t) || /字/.test(t) || /[（）()=＝]/.test(t),
+    cnLen: t.replace(/[^\u4e00-\u9fa5]/g, '').length,
+  }))
+  const good = scored.filter((s) => s.hasKw && !s.bad && s.cnLen >= 4 && s.cnLen <= 14)
+  if (good.length) {
+    good.sort((a, b) => Math.abs(a.cnLen - 8) - Math.abs(b.cnLen - 8))
+    return good[0].t
+  }
+  const kw = scored.filter((s) => s.hasKw)
+  if (kw.length) return kw[0].t
+  return cleaned[0]
+}
+
+function buildFallbackTitle(keyword: string): string {
+  const templates = ['全面解析', '实用指南', '全攻略', '怎么选', '入门到精通']
+  const idx = keyword.length % templates.length
+  return `${keyword}${templates[idx]}`
+}
+
+function cleanTitle(raw: string, keyword: string): string {
+  let t = (raw || '')
+    .split('\n')
+    .map((l) => l.trim())
+    .find((l) => l.length > 0) || (raw || '')
+
+  t = t
+    .replace(/^\s*\d+[\.、)]\s*/, '')                                 // 开头序号 "7. " "1、"
+    .replace(/[（(][^（）()]*\d+\s*字[^（）()]*[）)]/g, '')             // （7字）/ (8字)
+    .replace(/[“"”'‘’「」『』【】]/g, '')                             // 各类引号
+    .replace(/\s*[-—–]\s*(简洁|优选|但|注|说明|即)[^，。\n]*$/g, '')     // 残尾 "- 简洁8." / "- 但品"
+    .replace(/[（）()]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  // 仍含字数/等号/序号等残留时，按分隔符切分并取包含关键词的片段
+  if (/字数|＝|=|[（(]?\d+字|序号|选项/.test(t)) {
+    const parts = t.split(/(字数|＝|=|[（(]?\d+字|序号|选项)/)
+    const realPart = parts.find((p) => p && p.includes(keyword)) || t
+    t = (realPart || t).replace(/^[：:、，。\s]+/, '').trim()
+  }
+
+  return t
+}
+
+/**
+ * 判断清洗后的标题是否仍不合格：
+ * 长度过短、不含关键词、或残留字数统计/序号/旁注痕迹。
+ */
+function isTitleMalformed(title: string, keyword: string): boolean {
+  if (!title || title.length < 4) return true
+  if (!title.includes(keyword)) return true
+  if (/\d+\s*字/.test(title)) return true
+  if (/字[：:]?\s*\d/.test(title)) return true
+  if (/(序号|选项|简洁\d|但品|说明：|＝)/.test(title)) return true
+  return false
+}
+
+/**
  * 计算关键词密度（中文正确算法）
  *   密度 = (关键词出现次数 × 关键词字数) / 全文纯文字总字数 × 100%
  * 旧实现漏乘「关键词字数」，导致密度被严重低估、AI 过度堆砌。
@@ -152,14 +245,14 @@ export async function generateArticle(params: GenerateArticleParams): Promise<Ge
     const titleMessages: ChatMessage[] = [
       {
         role: 'system',
-        content: `你是一位SEO专家，擅长撰写吸引点击的SEO标题。
+        content: `你是一位SEO专家，只负责输出一个文章标题。
 要求：
 1. 标题必须包含关键词"${keyword}"
 2. 标题长度不超过12个汉字（含标点）
 3. 标题要有吸引力，让人想点击
-4. 符合百度/Google SEO标准
-5. 不要使用"！"等过度夸张符号
-6. 直接输出标题，不要加引号，不要任何解释`,
+4. 符合百度/Google SEO标准，不要使用"！"等过度夸张符号
+5. 严禁输出任何额外内容：不要加引号、不要序号、不要列多个选项、绝对不要输出"1. ... 2. ..."这样的选项列表、绝对不要写"（8字）""10个字"之类的字数说明、不要写"简洁/但/说明"等旁注、不要任何解释
+6. 只返回标题本身这一行纯文本`,
       },
       {
         role: 'user',
@@ -167,7 +260,7 @@ export async function generateArticle(params: GenerateArticleParams): Promise<Ge
 关键词：${keyword}
 相关领域：${siteKeywords.slice(0, 5).join('、')}
 
-请根据以上关键词生成一个SEO优化标题。直接输出标题即可。`,
+请只返回一个SEO优化标题文本（只要标题，不要其他任何内容）。`,
       },
     ]
 
@@ -178,10 +271,32 @@ export async function generateArticle(params: GenerateArticleParams): Promise<Ge
       siteId,
     })
 
-    let articleTitle = titleResponse.content
-      .replace(/^[""''「『【\s]+|[""''」』】\s]+$/g, '')
-      .replace(/\n/g, '')
-      .trim()
+    // 从模型输出里解析出干净标题（模型常返回多选项/字数说明，需要解析）
+    let articleTitle = extractCleanTitle(titleResponse.content || '', keyword)
+    console.log(`[生成] 原始标题: ${(titleResponse.content || '').replace(/\n/g, ' ').slice(0, 80)} → 清洗后: ${articleTitle}`)
+
+    // 仍不合格（含数字/字数/缺关键词）时，用更严格的 prompt 重试一次
+    if (!articleTitle || isTitleMalformed(articleTitle, keyword)) {
+      console.log(`[生成] 标题疑似含元指令废话，重试生成标题...`)
+      const retryTitle = await chatCompletion(payload, [
+        {
+          role: 'system',
+          content: `只输出一个文章标题，必须包含"${keyword}"，4到12个汉字。绝对不要序号、不要多个选项、不要引号、不要任何字数说明（如"10个字"）、不要解释，只返回标题本身这一行纯文本。`,
+        },
+        {
+          role: 'user',
+          content: `关键词：${keyword}。返回标题。`,
+        },
+      ], { temperature: 0.5, maxTokens: 60, purpose: 'generate_title', siteId })
+      const cleaned = extractCleanTitle(retryTitle.content || '', keyword)
+      if (cleaned && !isTitleMalformed(cleaned, keyword)) articleTitle = cleaned
+    }
+
+    // 两次都不行，用关键词兜底拼接，保证一定有干净标题
+    if (!articleTitle || isTitleMalformed(articleTitle, keyword)) {
+      articleTitle = buildFallbackTitle(keyword)
+      console.log(`[生成] 使用兜底标题: ${articleTitle}`)
+    }
 
     if (!articleTitle || articleTitle.length < 5) {
       throw new Error('标题生成失败，内容为空')
