@@ -1,6 +1,7 @@
 import type { Payload } from 'payload'
 import { chatCompletion, type ChatMessage } from './openaiClient'
 import { pickRandomKeyword, markKeywordUsed, markKeywordReserved, checkKeywordSimilarity } from './keywordPicker'
+import { pinyin } from 'pinyin-pro'
 
 export interface GenerateArticleParams {
   siteId: string | number
@@ -130,7 +131,7 @@ export async function generateArticle(params: GenerateArticleParams): Promise<Ge
 
     const titleResponse = await chatCompletion(payload, titleMessages, {
       temperature: 0.8,
-      maxTokens: 4096,
+      maxTokens: 300,
       purpose: 'generate_title',
       siteId,
     })
@@ -256,15 +257,17 @@ ${internalLinksRef.length > 0
     // 旧代码用「出现次数 / 总字数」，漏乘了关键词自身字数，导致实测密度被
     // 除以关键词长度（通常 2~6 字）而严重低估；AI 为"凑够 2%~5%"会疯狂堆砌，
     // 实际真实密度高达 8%~20%，这正是密度虚高的根因。
-    const { density, keywordCount } = calculateKeywordDensity(articleContent, keyword)
+    let { density, keywordCount } = calculateKeywordDensity(articleContent, keyword)
     console.log(`[生成] 关键词密度: ${density.toFixed(2)}% (目标2%-5%, 关键词出现 ${keywordCount} 次)`)
 
     const DENSITY_MIN = 1.5 // 低于此值需要补词
     const DENSITY_MAX = 5   // 高于此值需要降密度（堆砌惩罚）
+    const MAX_DENSITY_RETRIES = 2 // 密度不达标时最多重生成次数
 
-    if (density < DENSITY_MIN || density > DENSITY_MAX) {
+    for (let attempt = 1; attempt <= MAX_DENSITY_RETRIES; attempt++) {
+      if (density >= DENSITY_MIN && density <= DENSITY_MAX) break
       const needReduce = density > DENSITY_MAX
-      console.log(`[生成] 关键词密度${needReduce ? '过高(堆砌)' : '过低'}，重新生成以${needReduce ? '降低' : '提升'}密度...`)
+      console.log(`[生成] 关键词密度${needReduce ? '过高(堆砌)' : '过低'}，第${attempt}次重生成以${needReduce ? '降低' : '提升'}密度...`)
       const retryMessages: ChatMessage[] = [
         {
           role: 'system',
@@ -302,7 +305,11 @@ ${needReduce
       if (retryResponse.content && retryResponse.content.length > 500) {
         articleContent = retryResponse.content
         const recheck = calculateKeywordDensity(articleContent, keyword)
-        console.log(`[生成] 重新生成后密度: ${recheck.density.toFixed(2)}% (出现 ${recheck.keywordCount} 次)`)
+        density = recheck.density
+        keywordCount = recheck.keywordCount
+        console.log(`[生成] 第${attempt}次重生成后密度: ${density.toFixed(2)}% (出现 ${keywordCount} 次)`)
+      } else {
+        break
       }
     }
 
@@ -311,7 +318,7 @@ ${needReduce
     const metaTitle = articleTitle.length > 60 ? articleTitle.slice(0, 60) : articleTitle
     const metaDescription = excerpt.slice(0, 150)
     const metaKeywords = `${keyword}, ${siteKeywords.slice(0, 4).join(', ')}`
-    const slug = generateSEOSlug(articleTitle, keyword)
+    const slug = await generateUniqueSlug(keyword, articleTitle, siteId, payload)
 
     // ========== 第五步：从媒体库随机选图 ==========
     const siteMedia = await payload.find({
@@ -423,56 +430,51 @@ function generateExcerpt(html: string): string {
 }
 
 /**
- * 生成SEO友好的slug（关键词-日期格式，如 chongwu-meirong-20260807）
+ * 将关键词/标题转写为 ASCII slug 基（中文→拼音，无声调）
+ * 旧实现用硬编码拼音映射表（仅 ~90 字），未覆盖的字会原样保留成中文，
+ * 导致 URL 里混进中文字符、且不同关键词可能转写成相同基 → slug 撞车。
+ * 改用 pinyin-pro 完整转写，再由 generateUniqueSlug 保证全局唯一。
  */
-function generateSEOSlug(title: string, keyword?: string): string {
+function toSlugBase(input: string): string {
+  if (!input) return ''
+  const latin = pinyin(input, { toneType: 'none', type: 'string', nonZh: 'consecutive' })
+    .toLowerCase()
+    .trim()
+  const base = latin
+    .replace(/[^a-z0-9]+/g, '-') // 非字母数字统一成连字符
+    .replace(/^-+|-+$/g, '') // 去首尾连字符
+  return base.slice(0, 40)
+}
+
+/**
+ * 生成全局唯一的 SEO slug：基 + 日期；若已存在则追加 -2 / -3 ...
+ * Articles.slug 是全局 unique，撞车会让 payload.create 抛错，关键词被重置为
+ * pending 后下次又被选中 → 无限失败循环，因此必须保证唯一。
+ */
+async function generateUniqueSlug(
+  keyword: string | undefined,
+  title: string,
+  siteId: string | number,
+  payload: Payload,
+): Promise<string> {
   const now = new Date()
   const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
-
-  // 优先用关键词作为slug基础
-  let base = keyword || title
-
-  // 移除特殊字符，保留中英文和数字
-  base = base.replace(/[^\w\u4e00-\u9fa5]/g, '')
-
-  // 中文转拼音（简单处理：取每个汉字首字母）
-  const pinyinMap: Record<string, string> = {
-    '宠': 'chong', '物': 'wu', '美': 'mei', '容': 'rong', '犬': 'quan', '舍': 'she',
-    '幼': 'you', '选': 'xuan', '购': 'gou', '纯': 'chun', '种': 'zhong',
-    '玉': 'yu', '器': 'qi', '定': 'ding', '制': 'zhi', '翡': 'fei', '翠': 'cui',
-    '鉴': 'jian', '别': 'bie', '和': 'he', '田': 'tian', '价': 'jia', '格': 'ge',
-    '摩': 'mo', '托': 'tuo', '车': 'che', '销': 'xiao', '售': 'shou', '维': 'wei',
-    '修': 'xiu', '配': 'pei', '件': 'jian', '货': 'huo', '运': 'yun',
-    '流': 'liu', '专': 'zhuan', '线': 'xian', '大': 'da', '输': 'shu',
-    '零': 'ling', '担': 'dan', '仓': 'cang', '储': 'chu', '送': 'song',
-    '金': 'jin', '属': 'shu', '回': 'hui', '收': 'shou', '废': 'fei',
-    '铜': 'tong', '铝': 'lv', '铁': 'tie', '电': 'dian', '缆': 'lan',
-    '设': 'she', '备': 'bei', '资': 'zi', '品': 'pin', '公': 'gong',
-    '司': 'si', '话': 'hua', '藏': 'cang', '雕': 'diao', '工': 'gong',
-    '艺': 'yi', '手': 'shou', '镯': 'zhuo', '保': 'bao', '养': 'yang',
-    '赏': 'shang', '二': 'er', '踏': 'ta', '板': 'ban', '跨': 'kua',
-    '骑': 'qi', '驾': 'jia', '照': 'zhao', '费': 'fei', '医': 'yi',
-    '疗': 'liao', '训': 'xun', '练': 'lian', '用': 'yong', '疫': 'yi',
-    '苗': 'miao', '寄': 'ji', '繁': 'fan', '育': 'yu', '毛': 'mao',
-    '拉': 'la', '布': 'bu', '多': 'duo', '柯': 'ke', '基': 'ji',
-    '萨': 'sa', '耶': 'ye', '推': 'tui', '荐': 'jian', '健': 'jian',
-    '康': 'kang', '买': 'mai', '卖': 'mai', '狗': 'gou',
+  const rawBase = toSlugBase(keyword || title) || 'article'
+  let candidate = `${rawBase}-${dateStr}`
+  let n = 2
+  // 最多尝试 20 次，避免极端情况下死循环
+  while (n <= 21) {
+    const hit = await payload.find({
+      collection: 'articles',
+      where: { slug: { equals: candidate } },
+      limit: 1,
+      depth: 0,
+    })
+    if (hit.docs.length === 0) break
+    candidate = `${rawBase}-${dateStr}-${n}`
+    n++
   }
-
-  // 将中文转为拼音首字母
-  let slugBase = ''
-  for (const char of base) {
-    if (/[\u4e00-\u9fa5]/.test(char)) {
-      slugBase += pinyinMap[char] || char
-    } else {
-      slugBase += char.toLowerCase()
-    }
-  }
-
-  // 限制长度
-  slugBase = slugBase.slice(0, 30)
-
-  return `${slugBase}-${dateStr}`
+  return candidate
 }
 
 /**
