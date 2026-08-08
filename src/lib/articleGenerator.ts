@@ -39,6 +39,10 @@ function stripTitleJunk(t: string): string {
     .replace(/\d+\s*个字?/g, '')
     .replace(/字数[：:]?\s*\d+/g, '')
     .replace(/\s*[-—–]\s*(简洁|优选|但|注|说明|即|或|及)[^，。\n]*$/g, '')
+    // 去掉末尾逗号/句号后拼接的旁注废话（也是、简洁、但、说明…）
+    .replace(/(?:，|,|。|\.|、)\s*(也是|简洁|但|说明|即|优选|注|不过|其实|通常|换言之)[^，。\n]*$/g, '')
+    // 去掉直接拼接在标题结尾的废话词
+    .replace(/(也是|简洁|但|说明|即|优选|注)$/g, '')
     .replace(/[（）()]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
@@ -115,7 +119,7 @@ function isTitleMalformed(title: string, keyword: string): boolean {
   if (!title.includes(keyword)) return true
   if (/\d+\s*字/.test(title)) return true
   if (/字[：:]?\s*\d/.test(title)) return true
-  if (/(序号|选项|简洁\d|但品|说明：|＝)/.test(title)) return true
+  if (/(序号|选项|简洁|也是|但品|说明|即|优选|注[：:]|＝|不过|其实|通常|换言之)/.test(title)) return true
   return false
 }
 
