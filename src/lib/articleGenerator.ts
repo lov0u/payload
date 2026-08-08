@@ -18,6 +18,45 @@ export interface GenerateResult {
   duration?: number
 }
 
+// 辅助函数：转义正则表达式特殊字符
+function escapeRegExp(string: string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// 辅助函数：带重试的 AI 调用
+async function chatCompletionWithRetry(
+  payload: Payload,
+  messages: ChatMessage[],
+  options: {
+    temperature?: number
+    maxTokens?: number
+    purpose?: string
+    siteId?: string | number
+    maxRetries?: number
+  }
+): Promise<{ content: string; tokens: number; modelId: string | number; modelName: string }> {
+  const { maxRetries = 3, ...rest } = options
+  let lastError: Error | null = null
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await chatCompletion(payload, messages, rest)
+      if (response.content && response.content.trim().length > 0) {
+        return response
+      }
+      throw new Error('AI 返回内容为空')
+    } catch (error: any) {
+      lastError = error
+      console.log(`[重试] 第 ${attempt}/${maxRetries} 次尝试失败: ${error.message}`)
+      if (attempt < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, 2000 * attempt)) // 递增延迟
+      }
+    }
+  }
+
+  throw lastError || new Error('AI 调用失败')
+}
+
 export async function generateArticle(params: GenerateArticleParams): Promise<GenerateResult> {
   const startTime = Date.now()
   const { siteId, configId, payload, triggerType = 'cron' } = params
@@ -72,7 +111,7 @@ export async function generateArticle(params: GenerateArticleParams): Promise<Ge
     const siteKeywords = (config.siteKeywords as string)?.split('\n').filter(Boolean) || []
     const siteDomain = (site as any).domain || ''
 
-    // 第一步：生成标题
+    // 第一步：生成标题（带重试机制）
     console.log(`[生成] 关键词: ${keyword} → 生成标题...`)
     const titleMessages: ChatMessage[] = [
       {
@@ -96,11 +135,12 @@ export async function generateArticle(params: GenerateArticleParams): Promise<Ge
       },
     ]
 
-    const titleResponse = await chatCompletion(payload, titleMessages, {
+    const titleResponse = await chatCompletionWithRetry(payload, titleMessages, {
       temperature: 0.8,
       maxTokens: 4096,
       purpose: 'generate_title',
       siteId,
+      maxRetries: 3,
     })
 
     let articleTitle = titleResponse.content
@@ -152,6 +192,11 @@ export async function generateArticle(params: GenerateArticleParams): Promise<Ge
       slug: a.slug,
     }))
 
+    // 修复 #4：改进内链逻辑，提供多个链接选项
+    const linkExamples = internalLinksRef.slice(0, 5).map((l, i) =>
+      `${i + 1}. 《${l.title}》 → <a href="/${l.slug}">${l.title}</a>`
+    ).join('\n')
+
     const contentMessages: ChatMessage[] = [
       {
         role: 'system',
@@ -179,7 +224,7 @@ AEO收录标准：
 
 内链要求：
 ${internalLinksRef.length > 0
-  ? `在文章中自然插入2-3个内链，使用 <a href="/${internalLinksRef[0].slug}">锚文本</a> 格式。可用文章：\n${internalLinksRef.map((l, i) => `${i + 1}. 《${l.title}》 → /${l.slug}`).join('\n')}`
+  ? `在文章中自然插入2-3个内链，从以下链接中选择：\n${linkExamples}\n使用格式：<a href="/文章slug">锚文本</a>`
   : '暂无其他文章可链接。'}
 
 输出格式：直接输出HTML内容，使用<h2><h3><p><ul><table>等标签。不要输出任何前言、解释或markdown标记。`,
@@ -197,11 +242,12 @@ ${internalLinksRef.length > 0
       },
     ]
 
-    const contentResponse = await chatCompletion(payload, contentMessages, {
+    const contentResponse = await chatCompletionWithRetry(payload, contentMessages, {
       temperature: 0.7,
       maxTokens: 4000,
       purpose: 'generate_article',
       siteId,
+      maxRetries: 2,
     })
 
     let articleContent = contentResponse.content
@@ -212,9 +258,10 @@ ${internalLinksRef.length > 0
 
     console.log(`[生成] 文章长度: ${articleContent.length} 字符`)
 
-    // 关键词密度检测
+    // 修复 #2：关键词密度检测（转义正则特殊字符）
     const textOnly = articleContent.replace(/<[^>]+>/g, '')
-    const keywordCount = (textOnly.match(new RegExp(keyword, 'g')) || []).length
+    const escapedKeyword = escapeRegExp(keyword)
+    const keywordCount = (textOnly.match(new RegExp(escapedKeyword, 'g')) || []).length
     const density = (keywordCount / textOnly.length) * 100
     console.log(`[生成] 关键词密度: ${density.toFixed(2)}% (目标2%-5%)`)
 
@@ -236,11 +283,12 @@ ${internalLinksRef.length > 0
         },
       ]
 
-      const retryResponse = await chatCompletion(payload, retryMessages, {
+      const retryResponse = await chatCompletionWithRetry(payload, retryMessages, {
         temperature: 0.7,
         maxTokens: 4000,
         purpose: 'generate_article_retry',
         siteId,
+        maxRetries: 2,
       })
 
       if (retryResponse.content && retryResponse.content.length > 500) {
@@ -256,17 +304,28 @@ ${internalLinksRef.length > 0
     const metaKeywords = `${keyword}, ${siteKeywords.slice(0, 4).join(', ')}`
     const slug = generateSEOSlug(articleTitle, keyword)
 
-    // 从媒体库随机选图
+    // 修复 #5：优化封面图选择，避免重复
     const siteMedia = await payload.find({
       collection: 'media',
       where: { site: { equals: siteId } },
       limit: 100,
     })
 
+    // 获取最近文章使用的图片ID
+    const usedMediaIds = existingArticles.docs
+      .map((a: any) => a.coverImage)
+      .filter(Boolean)
+
+    // 过滤出未使用的图片
+    const availableMedia = siteMedia.docs.filter(
+      (m: any) => !usedMediaIds.includes(m.id)
+    )
+
     let coverImageId: string | number | undefined
-    if (siteMedia.docs.length > 0) {
-      const randomIndex = Math.floor(Math.random() * siteMedia.docs.length)
-      coverImageId = siteMedia.docs[randomIndex].id
+    const mediaPool = availableMedia.length > 0 ? availableMedia : siteMedia.docs
+    if (mediaPool.length > 0) {
+      const randomIndex = Math.floor(Math.random() * mediaPool.length)
+      coverImageId = mediaPool[randomIndex].id
     }
 
     // 生成JSON-LD
@@ -360,6 +419,7 @@ function generateExcerpt(html: string): string {
   return text.slice(0, 200)
 }
 
+// 修复 #3：完善 slug 生成的拼音转换
 function generateSEOSlug(title: string, keyword?: string): string {
   const now = new Date()
   const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
@@ -367,26 +427,56 @@ function generateSEOSlug(title: string, keyword?: string): string {
   let base = keyword || title
   base = base.replace(/[^\w\u4e00-\u9fa5]/g, '')
 
+  // 扩展的拼音映射表（覆盖更常用的字符）
   const pinyinMap: Record<string, string> = {
+    // 宠物相关
     '宠': 'chong', '物': 'wu', '美': 'mei', '容': 'rong', '犬': 'quan', '舍': 'she',
-    '幼': 'you', '选': 'xuan', '购': 'gou', '纯': 'chun', '种': 'zhong',
+    '幼': 'you', '选': 'xuan', '购': 'gou', '纯': 'chun', '种': 'zhong', '猫': 'mao',
+    '狗': 'gou', '训': 'xun', '练': 'lian', '养': 'yang', '护': 'hu', '理': 'li',
+    // 玉石相关
     '玉': 'yu', '器': 'qi', '定': 'ding', '制': 'zhi', '翡': 'fei', '翠': 'cui',
     '鉴': 'jian', '别': 'bie', '和': 'he', '田': 'tian', '价': 'jia', '格': 'ge',
-    '回': 'hui', '收': 'shou', '废': 'fei', '铜': 'tong', '铝': 'lv', '铁': 'tie',
-    '电': 'dian', '缆': 'lan', '设': 'she', '备': 'bei', '资': 'zi', '品': 'pin',
+    '宝': 'bao', '珠': 'zhu', '收': 'shou', '藏': 'cang',
+    // 回收相关
+    '回': 'hui', '废': 'fei', '铜': 'tong', '铝': 'lv', '铁': 'tie', '电': 'dian',
+    '缆': 'lan', '设': 'she', '备': 'bei', '资': 'zi', '品': 'pin', '再': 'zai',
+    '生': 'sheng', '金': 'jin', '属': 'shu', '工': 'gong', '业': 'ye', '料': 'liao',
+    // 汽车相关
     '二': 'er', '手': 'shou', '车': 'che', '汽': 'qi', '销': 'xiao', '售': 'shou',
-    '保': 'bao', '养': 'yang', '知': 'zhi', '识': 'shi', '健': 'jian', '康': 'kang',
-    '生': 'sheng', '活': 'huo', '百': 'bai', '科': 'ke', '实': 'shi', '用': 'yong',
-    '指': 'zhi', '南': 'nan', '经': 'jing', '验': 'yan', '分': 'fen', '享': 'xiang',
+    '保': 'bao', '新': 'xin', '能': 'neng', '源': 'yuan', '试': 'shi', '驾': 'jia',
+    '配': 'pei', '置': 'zhi', '油': 'you', '耗': 'hao', '对': 'dui', '比': 'bi',
+    // 生活百科
+    '知': 'zhi', '识': 'shi', '健': 'jian', '康': 'kang', '活': 'huo', '百': 'bai',
+    '科': 'ke', '实': 'shi', '用': 'yong', '指': 'zhi', '南': 'nan', '经': 'jing',
+    '验': 'yan', '分': 'fen', '享': 'xiang', '小': 'xiao', '窍': 'qiao', '门': 'men',
+    '家': 'jia', '居': 'ju', '清': 'qing', '洁': 'jie', '收': 'shou', '纳': 'na',
+    '整': 'zheng', '饮': 'yin', '食': 'shi', '医': 'yi', '疗': 'liao',
+    // 杜宾犬相关
+    '杜': 'du', '宾': 'bin', '多': 'duo', '少': 'shao', '钱': 'qian', '好': 'hao',
+    '忠': 'zhong', '诚': 'cheng', '度': 'du', '卫': 'wei', '图': 'tu', '片': 'pian',
+    '性': 'xing', '命': 'ming', '体': 'ti', '重': 'zhong', '特': 'te', '征': 'zheng',
+    '方': 'fang', '法': 'fa', '注': 'zhu', '意': 'yi', '事': 'shi', '项': 'xiang',
+    // 通用字符
+    '的': 'de', '是': 'shi', '在': 'zai', '有': 'you', '不': 'bu', '这': 'zhe',
+    '中': 'zhong', '大': 'da', '来': 'lai', '上': 'shang', '国': 'guo', '个': 'ge',
+    '到': 'dao', '说': 'shuo', '们': 'men', '为': 'wei', '子': 'zi', '会': 'hui',
+    '出': 'chu', '也': 'ye', '对': 'dui', '着': 'zhe', '就': 'jiu', '年': 'nian',
+    '那': 'na', '要': 'yao', '下': 'xia', '以': 'yi', '得': 'de', '过': 'guo',
+    '地': 'di', '方': 'fang', '后': 'hou', '自': 'zi', '然': 'ran', '学': 'xue',
   }
 
   let slugBase = ''
   for (const char of base) {
     if (/[\u4e00-\u9fa5]/.test(char)) {
-      slugBase += pinyinMap[char] || char
+      slugBase += pinyinMap[char] || '' // 未映射的字符直接跳过
     } else {
       slugBase += char.toLowerCase()
     }
+  }
+
+  // 如果 slug 为空，使用日期
+  if (!slugBase) {
+    slugBase = 'article'
   }
 
   slugBase = slugBase.slice(0, 30)
