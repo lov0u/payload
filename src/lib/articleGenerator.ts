@@ -460,9 +460,9 @@ function generateSEOSlug(title: string, keyword?: string): string {
     '的': 'de', '是': 'shi', '在': 'zai', '有': 'you', '不': 'bu', '这': 'zhe',
     '中': 'zhong', '大': 'da', '来': 'lai', '上': 'shang', '国': 'guo', '个': 'ge',
     '到': 'dao', '说': 'shuo', '们': 'men', '为': 'wei', '子': 'zi', '会': 'hui',
-    '出': 'chu', '也': 'ye', '对': 'dui', '着': 'zhe', '就': 'jiu', '年': 'nian',
+    '出': 'chu', '也': 'ye', '着': 'zhe', '就': 'jiu', '年': 'nian',
     '那': 'na', '要': 'yao', '下': 'xia', '以': 'yi', '得': 'de', '过': 'guo',
-    '地': 'di', '方': 'fang', '后': 'hou', '自': 'zi', '然': 'ran', '学': 'xue',
+    '地': 'di', '后': 'hou', '自': 'zi', '然': 'ran', '学': 'xue',
   }
 
   let slugBase = ''
