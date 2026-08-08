@@ -9,6 +9,15 @@ export const Articles: CollectionConfig = {
         status: { equals: 'published' }
       }
     },
+    create: ({ req: { user } }) => {
+      return !!user
+    },
+    update: ({ req: { user } }) => {
+      return !!user
+    },
+    delete: ({ req: { user } }) => {
+      return !!user
+    },
   },
   labels: {
     singular: '文章',
