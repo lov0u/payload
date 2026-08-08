@@ -167,15 +167,24 @@ function pickRelevantMedia(docs: any[], keyword: string, title: string): any {
 }
 
 /**
- * 把配图插进正文，作为「文中第一张图」：优先插在引言第一段（第一个 </p>）之后，
- * 找不到 </p> 就插在第一个 </h2> 之后，再不行就放到最前面。
+ * 把配图插进正文：默认插到「第三个 H2 标题」的上方（H2 不足 3 个则插到最后一个 H2 上方，
+ * 再没有 H2 就放到最前面）。图片尺寸由前端 .article-image 容器统一约束为 21:9。
  */
 function insertImageIntoContent(html: string, imgUrl: string, alt: string): string {
   const fig = `<figure class="article-image"><img src="${imgUrl}" alt="${escapeHtmlAttr(alt)}" loading="lazy" /></figure>`
-  const pEnd = html.indexOf('</p>')
-  if (pEnd !== -1) return html.slice(0, pEnd + 4) + '\n' + fig + '\n' + html.slice(pEnd + 4)
-  const h2End = html.indexOf('</h2>')
-  if (h2End !== -1) return html.slice(0, h2End + 5) + '\n' + fig + '\n' + html.slice(h2End + 5)
+  // 收集所有 <h2> 起始位置，把配图插到第三个 H2 之前
+  const h2Starts: number[] = []
+  const re = /<h2[\s>]/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(html)) !== null) h2Starts.push(m.index)
+  if (h2Starts.length >= 3) {
+    const pos = h2Starts[2]
+    return html.slice(0, pos) + '\n' + fig + '\n' + html.slice(pos)
+  }
+  if (h2Starts.length >= 1) {
+    const pos = h2Starts[h2Starts.length - 1]
+    return html.slice(0, pos) + '\n' + fig + '\n' + html.slice(pos)
+  }
   return fig + '\n' + html
 }
 
