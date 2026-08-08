@@ -32,7 +32,11 @@ function escapeRegExp(str: string): string {
  */
 function stripTitleJunk(t: string): string {
   return (t || '')
-    .replace(/^\s*[-–—]*\s*/, '')
+    // 开头的 markdown 列表符/标题符/项目符号：* - + # • · ▪ ● 等
+    .replace(/^\s*[*+#•·▪●○◆■※→>\-–—]+\s*/, '')
+    // markdown 粗体/斜体包裹：**标题** 或 *标题*
+    .replace(/^\*{1,3}([^*]+)\*{1,3}$/, '$1')
+    .replace(/\*+/g, '')
     .replace(/^\s*\d+[\.、)]\s*/, '')
     .replace(/[“"”'‘’「」『』【】]/g, '')
     .replace(/[（(][^（）()]*\d+\s*字[^（）()]*[）)]/g, '')
@@ -53,7 +57,8 @@ function extractCleanTitle(raw: string, keyword: string): string {
   const lines = src.split(/\n+/).map((l) => l.trim()).filter(Boolean)
   const cands: string[] = []
   for (const line of lines) {
-    const byNum = line.split(/(?:\s|^)\d+[\.、)]\s+/)
+    // 先按 markdown 项目符号切（模型可能一行给多个 "* 选项"）
+    const byNum = line.split(/(?:\s|^)\d+[\.、)]\s+|(?:\s|^)[*+•·]\s+/)
     for (const part of byNum) {
       for (const sub of part.split(/\s*[-—–]\s*/)) {
         const t = sub.trim()
