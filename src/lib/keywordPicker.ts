@@ -6,10 +6,22 @@ export interface PickKeywordOptions {
   keywordType?: 'seed' | 'longtail'
 }
 
-export async function pickRandomKeyword(options: PickKeywordOptions) {
-  const { siteId, payload, keywordType = 'longtail' } = options
+export interface PickedKeyword {
+  doc: any
+  /** true = 关键词池已耗尽，本次是循环复用旧关键词 */
+  recycled: boolean
+}
 
-  // 先查找待使用的长尾词
+/**
+ * 选取关键词。
+ * 策略：优先未用过的（pending，长尾优先于种子）；
+ * 全部用完后进入「循环复用」模式，挑最久没用过的关键词再用一次。
+ * 关键词可循环，标题由 AI 按关键词重新生成，因此不会重复。
+ */
+export async function pickRandomKeyword(options: PickKeywordOptions): Promise<PickedKeyword | null> {
+  const { siteId, payload } = options
+
+  // 1) 未使用的长尾词
   const { docs: longtailKeywords } = await payload.find({
     collection: 'generate-keywords',
     where: {
@@ -22,10 +34,10 @@ export async function pickRandomKeyword(options: PickKeywordOptions) {
 
   if (longtailKeywords.length > 0) {
     const randomIndex = Math.floor(Math.random() * longtailKeywords.length)
-    return longtailKeywords[randomIndex]
+    return { doc: longtailKeywords[randomIndex], recycled: false }
   }
 
-  // 如果没有长尾词，用种子词
+  // 2) 未使用的种子词
   const { docs: seedKeywords } = await payload.find({
     collection: 'generate-keywords',
     where: {
@@ -38,7 +50,23 @@ export async function pickRandomKeyword(options: PickKeywordOptions) {
 
   if (seedKeywords.length > 0) {
     const randomIndex = Math.floor(Math.random() * seedKeywords.length)
-    return seedKeywords[randomIndex]
+    return { doc: seedKeywords[randomIndex], recycled: false }
+  }
+
+  // 3) 池子空了 → 循环复用：取最久未使用的一批，随机挑一个
+  const { docs: recycledKeywords } = await payload.find({
+    collection: 'generate-keywords',
+    where: {
+      site: { equals: siteId },
+      status: { in: ['used', 'reserved'] },
+    },
+    sort: 'usedAt', // 最久未使用的排前面（null 也在前）
+    limit: 20,
+  })
+
+  if (recycledKeywords.length > 0) {
+    const randomIndex = Math.floor(Math.random() * recycledKeywords.length)
+    return { doc: recycledKeywords[randomIndex], recycled: true }
   }
 
   return null

@@ -214,25 +214,31 @@ export async function generateArticle(params: GenerateArticleParams): Promise<Ge
     })
     if (!site) return { success: false, error: '站点不存在' }
 
-    // 3. 随机选择关键词
-    keywordDoc = await pickRandomKeyword({ siteId, payload })
-    if (!keywordDoc) return { success: false, error: '没有可用的关键词' }
+    // 3. 随机选择关键词（池子用完会自动循环复用最久未用的词）
+    const picked = await pickRandomKeyword({ siteId, payload })
+    if (!picked) return { success: false, error: '没有可用的关键词' }
+    keywordDoc = picked.doc
+    const isRecycled = picked.recycled
 
     const keyword = keywordDoc.keyword as string
 
     // 4. 标记关键词为已占用
     await markKeywordReserved(keywordDoc.id, payload)
 
-    // 5. 检查相似度
-    const isTooSimilar = await checkKeywordSimilarity(keyword, siteId, payload)
-    if (isTooSimilar) {
-      await markKeywordUsed(keywordDoc.id, 'skipped-similar', payload)
-      return {
-        success: false,
-        keyword,
-        error: '关键词与近期内容相似度太高，已跳过',
-        duration: (Date.now() - startTime) / 1000,
+    // 5. 检查相似度（循环复用模式下跳过：关键词本就会重复使用，标题由 AI 重新生成）
+    if (!isRecycled) {
+      const isTooSimilar = await checkKeywordSimilarity(keyword, siteId, payload)
+      if (isTooSimilar) {
+        await markKeywordUsed(keywordDoc.id, 'skipped-similar', payload)
+        return {
+          success: false,
+          keyword,
+          error: '关键词与近期内容相似度太高，已跳过',
+          duration: (Date.now() - startTime) / 1000,
+        }
       }
+    } else {
+      console.log(`[生成] 关键词池已用完，循环复用关键词: ${keyword}`)
     }
 
     // 6. 创建生成日志（进行中）
@@ -250,8 +256,29 @@ export async function generateArticle(params: GenerateArticleParams): Promise<Ge
 
     const siteName = (config.siteName as string) || (site.name as string)
     const siteDescription = (site.description as string) || ''
+    const siteIndustry = ((site as any).industry as string) || ''
     const siteKeywords = (config.siteKeywords as string)?.split('\n').filter(Boolean) || []
     const siteDomain = (site as any).domain || ''
+
+    // 行业约束：强制内容落在本站业务范围内，避免写成无关的泛话题
+    const industryGuard = siteIndustry
+      ? `本站行业定位：${siteIndustry}。
+【硬性要求】文章主题必须落在该行业范围内，从「${siteIndustry}」从业者/客户的视角来写。
+即使关键词本身比较宽泛，也必须结合本行业的真实业务场景展开，禁止写成与本行业无关的泛生活、泛资讯内容。`
+      : ''
+
+    // 循环复用关键词时，取该站已有标题，让模型换角度、避免撞车
+    let existingTitles: string[] = []
+    if (isRecycled) {
+      const { docs: prevArticles } = await payload.find({
+        collection: 'articles',
+        where: { site: { equals: siteId } },
+        sort: '-createdAt',
+        limit: 30,
+        depth: 0,
+      })
+      existingTitles = prevArticles.map((a: any) => a.title).filter(Boolean)
+    }
 
     // ========== 第一步：根据关键词生成标题 ==========
     console.log(`[生成] 关键词: ${keyword} → 生成标题...`)
@@ -266,14 +293,16 @@ export async function generateArticle(params: GenerateArticleParams): Promise<Ge
 4. 符合百度/Google SEO标准，不要使用"！"等过度夸张符号
 5. 严禁输出任何额外内容：不要加引号、不要序号、不要列多个选项、绝对不要输出"1. ... 2. ..."这样的选项列表、绝对不要写"（8字）""10个字"之类的字数说明、不要写"简洁/但/说明"等旁注、不要任何解释
 6. 只返回标题本身这一行纯文本
-7. 标题角度要多样化，不要总用"XX揭秘/全攻略/指南/全面解析"这类套路；可换"怎么选/避坑/实测/XX值不值"等更自然的切入`,
+7. 标题角度要多样化，不要总用"XX揭秘/全攻略/指南/全面解析"这类套路；可换"怎么选/避坑/实测/XX值不值"等更自然的切入
+${siteIndustry ? `8. 标题必须体现「${siteIndustry}」行业属性，不要写成与本行业无关的泛话题标题` : ''}`,
       },
       {
         role: 'user',
         content: `网站：${siteName}（${siteDescription}）
+${industryGuard}
 关键词：${keyword}
 相关领域：${siteKeywords.slice(0, 5).join('、')}
-
+${existingTitles.length ? `\n本站已有以下标题，请换一个明显不同的角度，不要与它们重复或近似：\n${existingTitles.map((t) => `- ${t}`).join('\n')}\n` : ''}
 请只返回一个SEO优化标题文本（只要标题，不要其他任何内容）。`,
       },
     ]
@@ -363,7 +392,14 @@ export async function generateArticle(params: GenerateArticleParams): Promise<Ge
       {
         role: 'system',
         content: `你是一位经验丰富的内容创作者，擅长为「${siteName}」撰写既符合搜索引擎收录、又读起来像真人写的实用文章。
-
+${siteIndustry ? `
+【行业定位（最高优先级，必须遵守）】
+- 本站行业：${siteIndustry}
+- 本站简介：${siteDescription}
+- 文章必须写这个行业里的内容，站在「${siteIndustry}」从业者的专业视角，服务本行业的真实客户。
+- 关键词若比较宽泛，必须把它落到本行业的具体业务场景上再展开，不允许写成与本行业无关的泛生活百科、泛资讯文章。
+- 举例：若本站是货运物流，"成本控制"要写运费/装载率/线路成本，而不是家庭理财。
+` : ''}
 【写作语气】
 - 像有真实经验的作者自然分享，不要用"作为……从业者"这类套话开头，也不要每段都喊"首先/其次/总之"。
 - 语言自然、有具体细节，可带一点个人观点与取舍（"我更推荐…""要注意的是…"），也可以写一段"也有人觉得…但其实…"的利弊权衡，显得有思考、不一边倒。
@@ -408,6 +444,7 @@ ${internalLinksRef.length > 0
         role: 'user',
         content: `网站：${siteName}
 网站简介：${siteDescription}
+${siteIndustry ? `行业：${siteIndustry}（文章内容必须属于这个行业）` : ''}
 文章标题：${articleTitle}
 核心关键词：${keyword}
 相关关键词：${siteKeywords.slice(0, 8).join('、')}
