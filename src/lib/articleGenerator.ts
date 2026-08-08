@@ -41,6 +41,48 @@ function calculateKeywordDensity(html: string, keyword: string): { density: numb
 }
 
 /**
+ * HTML 属性转义，避免 alt 里的引号/尖括号破坏 <img> 标签
+ */
+function escapeHtmlAttr(s: string): string {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
+/**
+ * 在本站媒体列表里挑一张「符合」的配图：
+ * 优先选 alt 文本与关键词/标题相关的；没有相关图再随机取一张。
+ * 调用方已按 site 过滤，这里只在传入的本站图里挑，绝不跨站乱选。
+ */
+function pickRelevantMedia(docs: any[], keyword: string, title: string): any {
+  const tokens = `${keyword} ${title}`
+    .toLowerCase()
+    .split(/[\s，,。：:、!！?？\-—_]+/)
+    .filter((t) => t && t.length >= 2)
+  const relevant = docs.filter((m) => {
+    const alt = String(m.alt || '').toLowerCase()
+    return alt && tokens.some((t) => alt.includes(t))
+  })
+  const pool = relevant.length > 0 ? relevant : docs
+  return pool[Math.floor(Math.random() * pool.length)]
+}
+
+/**
+ * 把配图插进正文，作为「文中第一张图」：优先插在引言第一段（第一个 </p>）之后，
+ * 找不到 </p> 就插在第一个 </h2> 之后，再不行就放到最前面。
+ */
+function insertImageIntoContent(html: string, imgUrl: string, alt: string): string {
+  const fig = `<figure class="article-image"><img src="${imgUrl}" alt="${escapeHtmlAttr(alt)}" loading="lazy" /></figure>`
+  const pEnd = html.indexOf('</p>')
+  if (pEnd !== -1) return html.slice(0, pEnd + 4) + '\n' + fig + '\n' + html.slice(pEnd + 4)
+  const h2End = html.indexOf('</h2>')
+  if (h2End !== -1) return html.slice(0, h2End + 5) + '\n' + fig + '\n' + html.slice(h2End + 5)
+  return fig + '\n' + html
+}
+
+/**
  * 生成SEO优化的文章（两步走：关键词→标题→文章内容）
  * 符合百度/Google SEO标准 + AEO收录标准
  */
@@ -203,7 +245,7 @@ export async function generateArticle(params: GenerateArticleParams): Promise<Ge
 
 SEO要求：
 1. 文章结构清晰，使用<h2><h3>分层，每段控制在100-200字
-2. 关键词"${keyword}"自然分布，密度控制在2%-3%（重要！过低影响收录，超过5%会被搜索引擎判定为堆砌作弊）
+2. 核心关键词"${keyword}"在标题、引言、正文、总结中自然融入即可；以读起来流畅、对读者有价值为准，不要为了凑次数而刻意堆砌，也不要完全回避不提
 3. 必须包含：引言（100字左右）、正文（3-5个小节）、总结
 4. 至少包含1个数据对比表格（HTML <table>格式，带<thead><tbody>）
 5. 适当使用<ul><li>列表、<strong>粗体强调
@@ -221,7 +263,7 @@ ${internalLinksRef.length > 0
   ? `在文章中自然插入2-3个内链，使用 <a href="/${internalLinksRef[0].slug}">锚文本</a> 格式。可用文章：\n${internalLinksRef.map((l, i) => `${i + 1}. 《${l.title}》 → /${l.slug}`).join('\n')}`
   : '暂无其他文章可链接。'}
 
-输出格式：直接输出HTML内容，使用<h2><h3><p><ul><table>等标签。不要输出任何前言、解释或markdown标记。`,
+输出格式：直接输出HTML内容，使用<h2><h3><p><ul><table>等标签。不要输出 <img> 图片标签（配图由系统自动插入）。不要输出任何前言、解释或markdown标记。`,
       },
       {
         role: 'user',
@@ -251,67 +293,12 @@ ${internalLinksRef.length > 0
 
     console.log(`[生成] 文章长度: ${articleContent.length} 字符`)
 
-    // ========== 第三步：关键词密度检测 ==========
-    // 正确的中文关键词密度公式：
-    //   密度 = (关键词出现次数 × 关键词字数) / 全文纯文字总字数 × 100%
-    // 旧代码用「出现次数 / 总字数」，漏乘了关键词自身字数，导致实测密度被
-    // 除以关键词长度（通常 2~6 字）而严重低估；AI 为"凑够 2%~5%"会疯狂堆砌，
-    // 实际真实密度高达 8%~20%，这正是密度虚高的根因。
-    let { density, keywordCount } = calculateKeywordDensity(articleContent, keyword)
-    console.log(`[生成] 关键词密度: ${density.toFixed(2)}% (目标2%-5%, 关键词出现 ${keywordCount} 次)`)
-
-    const DENSITY_MIN = 1.5 // 低于此值需要补词
-    const DENSITY_MAX = 5   // 高于此值需要降密度（堆砌惩罚）
-    const MAX_DENSITY_RETRIES = 2 // 密度不达标时最多重生成次数
-
-    for (let attempt = 1; attempt <= MAX_DENSITY_RETRIES; attempt++) {
-      if (density >= DENSITY_MIN && density <= DENSITY_MAX) break
-      const needReduce = density > DENSITY_MAX
-      console.log(`[生成] 关键词密度${needReduce ? '过高(堆砌)' : '过低'}，第${attempt}次重生成以${needReduce ? '降低' : '提升'}密度...`)
-      const retryMessages: ChatMessage[] = [
-        {
-          role: 'system',
-          content: `你是一位专业的SEO内容创作专家。请重新撰写文章，使核心关键词"${keyword}"的密度落在健康的2%-5%区间。
-${needReduce
-  ? `当前密度偏高（已超过5%），请：
-1. 减少关键词"${keyword}"的刻意重复，用同义词/近义词（相关词、口语化表达）替代部分出现
-2. 增加原创观点、具体案例、真实数据来稀释关键词占比
-3. 保持自然流畅，不要为了降密度而生硬删改导致语句不通`
-  : `当前密度偏低，请：
-1. 在文章中自然多次提及"${keyword}"
-2. 在引言、正文、总结中合理分布关键词
-3. 使用关键词的变体形式（同义词、相关词）`}
-
-直接输出HTML内容。`,
-        },
-        {
-          role: 'user',
-          content: `文章标题：${articleTitle}
-核心关键词：${keyword}
-字数要求：${config.articleMinLength || 1500}-${config.articleMaxLength || 3000}字
-当前密度：${density.toFixed(2)}%（目标2%-5%）
-
-请重新撰写，${needReduce ? '降低' : '提升'}关键词密度到健康区间。直接输出HTML内容。`,
-        },
-      ]
-
-      const retryResponse = await chatCompletion(payload, retryMessages, {
-        temperature: 0.7,
-        maxTokens: 4000,
-        purpose: 'generate_article_retry',
-        siteId,
-      })
-
-      if (retryResponse.content && retryResponse.content.length > 500) {
-        articleContent = retryResponse.content
-        const recheck = calculateKeywordDensity(articleContent, keyword)
-        density = recheck.density
-        keywordCount = recheck.keywordCount
-        console.log(`[生成] 第${attempt}次重生成后密度: ${density.toFixed(2)}% (出现 ${keywordCount} 次)`)
-      } else {
-        break
-      }
-    }
+    // ========== 第三步：关键词密度检测（仅记录，不强制） ==========
+    // 按需求：不强制关键词密度，只要文章流畅、符合 SEO + AEO 标准即可。
+    // 这里仅计算并记录密度用于监控，不再据此重生成——避免 AI 为凑密度而"报复性堆砌"
+    // （实测曾因"密度过低→补词"逻辑，导致密度从 1% 被顶到 13%）。
+    const { density, keywordCount } = calculateKeywordDensity(articleContent, keyword)
+    console.log(`[生成] 关键词密度(仅监控): ${density.toFixed(2)}% (出现 ${keywordCount} 次)`)
 
     // ========== 第四步：生成摘要和SEO字段 ==========
     const excerpt = generateExcerpt(articleContent)
@@ -320,17 +307,29 @@ ${needReduce
     const metaKeywords = `${keyword}, ${siteKeywords.slice(0, 4).join(', ')}`
     const slug = await generateUniqueSlug(keyword, articleTitle, siteId, payload)
 
-    // ========== 第五步：从媒体库随机选图 ==========
+    // ========== 第五步：选图并插入正文 ==========
+    // 只在本站媒体库里选图（按 site 过滤，绝不跨站乱选）；优先挑 alt 与关键词/标题
+    // 相关的「符合」的图，没有相关图再随机。把选中的图作为正文第一张图插入，
+    // 同时设为封面图 —— 缩略图即文章第一张图。
+    const serverURL = payload.config.serverURL || process.env.NEXT_PUBLIC_SERVER_URL || ''
     const siteMedia = await payload.find({
       collection: 'media',
       where: { site: { equals: siteId } },
       limit: 100,
+      depth: 0,
     })
 
+    const usableMedia = siteMedia.docs.filter((m: any) => m && m.url)
     let coverImageId: string | number | undefined
-    if (siteMedia.docs.length > 0) {
-      const randomIndex = Math.floor(Math.random() * siteMedia.docs.length)
-      coverImageId = siteMedia.docs[randomIndex].id
+    if (usableMedia.length > 0) {
+      const picked = pickRelevantMedia(usableMedia, keyword, articleTitle)
+      coverImageId = picked.id
+      const imgUrl = /^https?:\/\//.test(picked.url) ? picked.url : `${serverURL}${picked.url}`
+      const imgAlt = (picked.alt as string) || keyword || articleTitle
+      articleContent = insertImageIntoContent(articleContent, imgUrl, imgAlt)
+      console.log(`[生成] 已插入配图(本站媒体): ${imgUrl} (媒体ID ${coverImageId})`)
+    } else {
+      console.log(`[生成] 本站媒体库无可用图片，跳过配图`)
     }
 
     // ========== 第六步：生成JSON-LD结构化数据 ==========
