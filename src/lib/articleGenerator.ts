@@ -19,6 +19,27 @@ export interface GenerateResult {
 }
 
 /**
+ * 正则转义：避免关键词包含 . * ? ( ) 等特殊字符时正则报错或误匹配
+ */
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * 计算关键词密度（中文正确算法）
+ *   密度 = (关键词出现次数 × 关键词字数) / 全文纯文字总字数 × 100%
+ * 旧实现漏乘「关键词字数」，导致密度被严重低估、AI 过度堆砌。
+ * 这里对关键词做正则转义，避免特殊字符破坏匹配。
+ */
+function calculateKeywordDensity(html: string, keyword: string): { density: number; keywordCount: number } {
+  const textOnly = html.replace(/<[^>]+>/g, '')
+  if (!textOnly || !keyword) return { density: 0, keywordCount: 0 }
+  const keywordCount = (textOnly.match(new RegExp(escapeRegExp(keyword), 'g')) || []).length
+  const density = (keywordCount * keyword.length) / textOnly.length * 100
+  return { density, keywordCount }
+}
+
+/**
  * 生成SEO优化的文章（两步走：关键词→标题→文章内容）
  * 符合百度/Google SEO标准 + AEO收录标准
  */
@@ -181,7 +202,7 @@ export async function generateArticle(params: GenerateArticleParams): Promise<Ge
 
 SEO要求：
 1. 文章结构清晰，使用<h2><h3>分层，每段控制在100-200字
-2. 关键词"${keyword}"自然分布，密度控制在2%-5%（重要！）
+2. 关键词"${keyword}"自然分布，密度控制在2%-3%（重要！过低影响收录，超过5%会被搜索引擎判定为堆砌作弊）
 3. 必须包含：引言（100字左右）、正文（3-5个小节）、总结
 4. 至少包含1个数据对比表格（HTML <table>格式，带<thead><tbody>）
 5. 适当使用<ul><li>列表、<strong>粗体强调
@@ -230,25 +251,33 @@ ${internalLinksRef.length > 0
     console.log(`[生成] 文章长度: ${articleContent.length} 字符`)
 
     // ========== 第三步：关键词密度检测 ==========
-    const textOnly = articleContent.replace(/<[^>]+>/g, '')
-    const keywordCount = (textOnly.match(new RegExp(keyword, 'g')) || []).length
-    const density = (keywordCount / textOnly.length) * 100
+    // 正确的中文关键词密度公式：
+    //   密度 = (关键词出现次数 × 关键词字数) / 全文纯文字总字数 × 100%
+    // 旧代码用「出现次数 / 总字数」，漏乘了关键词自身字数，导致实测密度被
+    // 除以关键词长度（通常 2~6 字）而严重低估；AI 为"凑够 2%~5%"会疯狂堆砌，
+    // 实际真实密度高达 8%~20%，这正是密度虚高的根因。
+    const { density, keywordCount } = calculateKeywordDensity(articleContent, keyword)
+    console.log(`[生成] 关键词密度: ${density.toFixed(2)}% (目标2%-5%, 关键词出现 ${keywordCount} 次)`)
 
-    console.log(`[生成] 关键词密度: ${density.toFixed(2)}% (目标2%-5%)`)
+    const DENSITY_MIN = 1.5 // 低于此值需要补词
+    const DENSITY_MAX = 5   // 高于此值需要降密度（堆砌惩罚）
 
-    // 如果密度低于1.5%，重新生成
-    if (density < 1.5) {
-      console.log(`[生成] 关键词密度过低，重新生成...`)
+    if (density < DENSITY_MIN || density > DENSITY_MAX) {
+      const needReduce = density > DENSITY_MAX
+      console.log(`[生成] 关键词密度${needReduce ? '过高(堆砌)' : '过低'}，重新生成以${needReduce ? '降低' : '提升'}密度...`)
       const retryMessages: ChatMessage[] = [
         {
           role: 'system',
-          content: `你是一位专业的SEO内容创作专家。请重新撰写文章，确保关键词"${keyword}"的密度达到2%-5%。
-
-要求：
+          content: `你是一位专业的SEO内容创作专家。请重新撰写文章，使核心关键词"${keyword}"的密度落在健康的2%-5%区间。
+${needReduce
+  ? `当前密度偏高（已超过5%），请：
+1. 减少关键词"${keyword}"的刻意重复，用同义词/近义词（相关词、口语化表达）替代部分出现
+2. 增加原创观点、具体案例、真实数据来稀释关键词占比
+3. 保持自然流畅，不要为了降密度而生硬删改导致语句不通`
+  : `当前密度偏低，请：
 1. 在文章中自然多次提及"${keyword}"
-2. 保持文章流畅，不要生硬堆砌
-3. 在标题、引言、正文、总结中都要出现关键词
-4. 使用关键词的变体形式（如同义词、相关词）
+2. 在引言、正文、总结中合理分布关键词
+3. 使用关键词的变体形式（同义词、相关词）`}
 
 直接输出HTML内容。`,
         },
@@ -257,8 +286,9 @@ ${internalLinksRef.length > 0
           content: `文章标题：${articleTitle}
 核心关键词：${keyword}
 字数要求：${config.articleMinLength || 1500}-${config.articleMaxLength || 3000}字
+当前密度：${density.toFixed(2)}%（目标2%-5%）
 
-请重新撰写，确保关键词密度达标。直接输出HTML内容。`,
+请重新撰写，${needReduce ? '降低' : '提升'}关键词密度到健康区间。直接输出HTML内容。`,
         },
       ]
 
@@ -271,7 +301,8 @@ ${internalLinksRef.length > 0
 
       if (retryResponse.content && retryResponse.content.length > 500) {
         articleContent = retryResponse.content
-        console.log(`[生成] 重新生成后文章长度: ${articleContent.length} 字符`)
+        const recheck = calculateKeywordDensity(articleContent, keyword)
+        console.log(`[生成] 重新生成后密度: ${recheck.density.toFixed(2)}% (出现 ${recheck.keywordCount} 次)`)
       }
     }
 
