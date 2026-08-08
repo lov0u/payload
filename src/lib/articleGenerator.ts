@@ -468,6 +468,9 @@ ${internalLinksRef.length > 0
         coverImage: coverImageId,
         site: siteId,
         status: config.autoPublish ? 'published' : 'draft',
+        // 关键修复：Articles 集合开启 versions.drafts，公开发布状态由内部字段 _status 控制，
+        // 仅设置自定义 status 字段不会让文章在公网可见。必须显式写入 _status='published'。
+        _status: config.autoPublish ? 'published' : 'draft',
         publishedAt: config.autoPublish ? new Date().toISOString() : undefined,
         sourceKeyword: keyword,
         metaTitle,
