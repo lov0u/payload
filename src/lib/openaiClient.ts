@@ -102,31 +102,44 @@ export async function chatCompletion(
       })
 
       const msg = response.choices[0]?.message || {}
+      // 推理模型（如 agnes-2.5-flash）把思考放在 reasoning_content，正式回复在 content
+      // 当 content 为空时，从 reasoning_content 中提取最终结论
       let rawContent = msg.content || ''
-      
-      // 调试日志
-      console.log(`[OpenAI] 模型 ${modelConfig.name} 响应:`, JSON.stringify({
-        content: msg.content?.substring(0, 200),
-        reasoning_content: (msg as any).reasoning_content?.substring(0, 200),
-        hasContent: !!msg.content,
-        contentLength: msg.content?.length || 0,
-      }, null, 2))
-      
-      // 只有当内容为空或极短（<2字符）时才尝试 reasoning_content
-      // 注意：标题生成通常只有 5-15 个字符，不能用 <10 判断
-      if (!rawContent || rawContent.trim().length < 2) {
-        const reasoningContent = (msg as any).reasoning_content || ''
-        if (reasoningContent && reasoningContent.trim().length > 0) {
-          const lines = reasoningContent.split('\n').filter((l: string) => l.trim())
-          rawContent = lines.slice(-5).join('\n')
-        }
+      if (!rawContent || rawContent.trim().length < 10) {
+        rawContent = msg.reasoning_content || ''
+        // 从推理内容中提取结论（通常最后几行是结论）
+        const lines = rawContent.split('\n').filter((l: string) => l.trim())
+        rawContent = lines.slice(-5).join('\n')
       }
-      const cleanContent = rawContent
+      // 清理推理模型特有的标记
+      let cleanContent = rawContent
         .replace(/^[\s\n]+/, '')
-        .replace(/<think>[\s\S]*?<\/think>\s*/g, '')
+        .replace(/ thinking[\s\S]*?<\/think>\s*/g, '')
         .trim()
-      
-      console.log(`[OpenAI] 处理后内容长度: ${cleanContent.length}, 前100字符: ${cleanContent.substring(0, 100)}`)
+
+      // 清洗AI可能输出的完整HTML页面（DOCTYPE、html、head、style、script等）
+      cleanContent = cleanContent
+        .replace(/```html\s*/gi, '')
+        .replace(/```\s*/g, '')
+
+      // 如果包含<body>标签，提取body内容
+      const bodyMatch = cleanContent.match(/<body[^>]*>([\s\S]*?)<\/body>/i)
+      if (bodyMatch) {
+        cleanContent = bodyMatch[1]
+      } else {
+        // 否则移除各种HTML页面标记
+        cleanContent = cleanContent
+          .replace(/<!DOCTYPE[^>]*>/gi, '')
+          .replace(/<html[^>]*>/gi, '')
+          .replace(/<\/html>/gi, '')
+          .replace(/<head[^>]*>[\s\S]*?<\/head>/gi, '')
+          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+          .replace(/<meta[^>]*>/gi, '')
+          .replace(/<title[^>]*>[\s\S]*?<\/title>/gi, '')
+      }
+
+      cleanContent = cleanContent.trim()
 
       return {
         content: cleanContent,
@@ -159,13 +172,18 @@ export async function chatCompletion(
         success: false,
       })
 
+      // 继续尝试下一个模型
       continue
     }
   }
 
+  // 所有模型都失败了
   throw new Error(`所有模型调用失败，最后错误: ${lastError?.message || '未知错误'}`)
 }
 
+/**
+ * 调用单个OpenAI API
+ */
 async function callOpenAIAPI(
   modelConfig: ModelConfig,
   messages: ChatMessage[],
@@ -174,6 +192,7 @@ async function callOpenAIAPI(
   const { apiUrl, apiKey, model } = modelConfig
   const { temperature, maxTokens } = options
 
+  // 构建完整的API URL
   const url = apiUrl.endsWith('/chat/completions')
     ? apiUrl
     : `${apiUrl.replace(/\/$/, '')}/chat/completions`
@@ -201,6 +220,9 @@ async function callOpenAIAPI(
   return data
 }
 
+/**
+ * 更新模型统计信息
+ */
 async function updateModelStats(
   payload: Payload,
   modelId: string | number,
@@ -232,6 +254,9 @@ async function updateModelStats(
   })
 }
 
+/**
+ * 获取模型使用统计
+ */
 export async function getModelStats(payload: Payload) {
   const { docs } = await payload.find({
     collection: 'model-apis',
