@@ -449,7 +449,7 @@ function generateSEOSlug(title: string, keyword?: string): string {
     '知': 'zhi', '识': 'shi', '健': 'jian', '康': 'kang', '活': 'huo', '百': 'bai',
     '科': 'ke', '实': 'shi', '用': 'yong', '指': 'zhi', '南': 'nan', '经': 'jing',
     '验': 'yan', '分': 'fen', '享': 'xiang', '小': 'xiao', '窍': 'qiao', '门': 'men',
-    '家': 'jia', '居': 'ju', '清': 'qing', '洁': 'jie', '收': 'shou', '纳': 'na',
+    '家': 'jia', '居': 'ju', '清': 'qing', '洁': 'jie', '纳': 'na',
     '整': 'zheng', '饮': 'yin', '食': 'shi', '医': 'yi', '疗': 'liao',
     // 杜宾犬相关
     '杜': 'du', '宾': 'bin', '多': 'duo', '少': 'shao', '钱': 'qian', '好': 'hao',
