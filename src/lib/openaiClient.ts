@@ -112,10 +112,14 @@ export async function chatCompletion(
         contentLength: msg.content?.length || 0,
       }, null, 2))
       
-      if (!rawContent || rawContent.trim().length < 10) {
-        rawContent = (msg as any).reasoning_content || ''
-        const lines = rawContent.split('\n').filter((l: string) => l.trim())
-        rawContent = lines.slice(-5).join('\n')
+      // 只有当内容为空或极短（<2字符）时才尝试 reasoning_content
+      // 注意：标题生成通常只有 5-15 个字符，不能用 <10 判断
+      if (!rawContent || rawContent.trim().length < 2) {
+        const reasoningContent = (msg as any).reasoning_content || ''
+        if (reasoningContent && reasoningContent.trim().length > 0) {
+          const lines = reasoningContent.split('\n').filter((l: string) => l.trim())
+          rawContent = lines.slice(-5).join('\n')
+        }
       }
       const cleanContent = rawContent
         .replace(/^[\s\n]+/, '')
