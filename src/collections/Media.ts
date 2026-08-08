@@ -13,7 +13,9 @@ export const Media: CollectionConfig = {
     useAsTitle: 'filename',
   },
   upload: {
-    staticDir: 'media',
+    // 媒体文件实际存放在持久化挂载卷 /app/public/media（compose 挂载 ./public/media:/app/public/media）。
+    // 必须指向 public/media，否则容器重建后 /app/media 软链丢失会导致 /api/media/file/* 全部 500。
+    staticDir: 'public/media',
     imageSizes: [
       {
         name: 'thumbnail',
