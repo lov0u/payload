@@ -7,7 +7,7 @@ import {
   ApiOutlined, FileAddOutlined, BarChartOutlined,
   CheckCircleOutlined, ExclamationCircleOutlined,
 } from '@ant-design/icons'
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { getList } from '@/lib/admin-api'
 
 const { Title, Text } = Typography
@@ -180,7 +180,7 @@ export default function DashboardPage() {
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(value: number, _name: string) => [`${value} 篇`, '文章数']} />
+                  <Tooltip formatter={(value) => [`${value} 篇`, '文章数']} />
                 </PieChart>
               </ResponsiveContainer>
             ) : (
@@ -204,7 +204,7 @@ export default function DashboardPage() {
                 <YAxis tick={{ fontSize: 12, fill: '#86909C' }} allowDecimals={false} />
                 <Tooltip
                   contentStyle={{ borderRadius: 6, border: '1px solid #E5E6EB' }}
-                  formatter={(value: number) => [`${value} 篇`, '生成数量']}
+                  formatter={(value) => [`${value} 篇`, '生成数量']}
                 />
                 <Bar dataKey="success" fill="#1677FF" radius={[4, 4, 0, 0]} name="文章数" />
               </BarChart>
