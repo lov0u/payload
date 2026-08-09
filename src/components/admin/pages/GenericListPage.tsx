@@ -104,7 +104,7 @@ export default function GenericListPage(props: GenericListPageProps) {
     setPageSize(pagination.pageSize || 20)
     if (!Array.isArray(sorter) && sorter.field) {
       const prefix = sorter.order === 'ascend' ? '' : '-'
-      setSort(`${prefix}${sorter.field}`)
+      setSort(`${prefix}${String(sorter.field)}`)
     }
   }
 
