@@ -8,7 +8,7 @@ import {
   CheckCircleOutlined, ExclamationCircleOutlined,
 } from '@ant-design/icons'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { getList } from '@/lib/admin-api'
+import { getList, getArticleUrl } from '@/lib/admin-api'
 
 const { Title, Text } = Typography
 
@@ -109,7 +109,7 @@ export default function DashboardPage() {
 
   const articleColumns = [
     { title: '标题', dataIndex: 'title', width: 280, ellipsis: true,
-      render: (v: string, r: Record<string, unknown>) => <a href={`https://${(r.site as Record<string,string>)?.domain || 'payload.ra0.cn'}/${r.slug}`} target="_blank" style={{ color: '#1677FF' }}>{v}</a>
+      render: (v: string, r: Record<string, unknown>) => <a href={getArticleUrl(r)} target="_blank" style={{ color: '#1677FF' }}>{v}</a>
     },
     { title: '站点', dataIndex: ['site', 'name'], width: 120, render: (v: unknown) => v || '-' },
     { title: '状态', dataIndex: 'status', width: 90,

@@ -89,6 +89,18 @@ export async function remove(collection: string, id: string | number) {
   return request(`/api/${collection}/${id}`, { method: 'DELETE' })
 }
 
+// Build article frontend URL: https://domain/news|articles/slug
+const ARTICLES_PREFIX_SITES = new Set(['lov0u', 'yushitou'])
+
+export function getArticleUrl(article: Record<string, unknown>): string {
+  const site = article.site as Record<string, string> | undefined
+  const domain = site?.domain || ''
+  const slug = (article.slug || article.id) as string
+  const siteSlug = site?.slug || ''
+  const prefix = ARTICLES_PREFIX_SITES.has(siteSlug) ? 'articles' : 'news'
+  return `https://${domain}/${prefix}/${slug}`
+}
+
 // File upload (FormData, no JSON content-type)
 export async function uploadFile(file: File) {
   const formData = new FormData()

@@ -2,6 +2,7 @@
 import { Tag, Tooltip } from 'antd'
 import GenericListPage from '@/components/admin/pages/GenericListPage'
 import type { ListColumn } from '@/components/admin/pages/GenericListPage'
+import { getArticleUrl } from '@/lib/admin-api'
 
 const statusMap: Record<string, { color: string; text: string }> = {
   published: { color: '#52C41A', text: '已发布' },
@@ -26,7 +27,7 @@ export default function ArticlesPage() {
       collection="articles" title="文章管理" columns={columns}
       filterFields={[{ name: 'title', label: '标题', type: 'input', placeholder: '搜索标题' }]}
       sortField="createdAt"
-      onRowClick={record => window.open(`/${record.slug}`, '_blank')}
+      onRowClick={record => window.open(getArticleUrl(record), '_blank')}
     />
   )
 }
