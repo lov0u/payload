@@ -1,1 +1,55 @@
-/* Payload 管理后台 · 自定义样式 */
+/* ===== Payload 管理后台 · Ant Design 设计规范 ===== */
+
+/* 圆角 */
+html {
+  --style-radius-s: 4px;
+  --style-radius-m: 6px;
+  --style-radius-l: 8px;
+}
+
+/* 字体 */
+html {
+  --font-body: "Hanken Grotesk", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --base-body-size: 14px;
+}
+
+/* 主色按钮 */
+html {
+  --style-primary: #1677FF;
+}
+
+/* 浅色主题 */
+html[data-theme="light"] {
+  --theme-bg: #F5F5F5;
+  --theme-text: #262626;
+  --theme-border-color: #D9D9D9;
+  --theme-input-bg: #FFFFFF;
+  --theme-elevation-900: #FFFFFF;
+  --theme-elevation-1000: #FFFFFF;
+}
+
+/* 功能色 - 浅色 */
+html[data-theme="light"] {
+  --theme-success-500: #52C41A;
+  --theme-success-600: #389E0D;
+  --theme-warning-150: #FFFBE6;
+  --theme-warning-800: #AD6800;
+  --theme-error-500: #FF4D4F;
+}
+
+/* 暗色主题 */
+html[data-theme="dark"] {
+  --style-primary: #4096FF;
+  --theme-bg: #141414;
+  --theme-border-color: #434343;
+  --theme-input-bg: #1F1F1F;
+}
+
+/* 功能色 - 暗色 */
+html[data-theme="dark"] {
+  --theme-success-500: #52C41A;
+  --theme-success-600: #95DE64;
+  --theme-warning-150: rgba(250,173,20,.12);
+  --theme-warning-800: #FFD666;
+  --theme-error-500: #FF4D4F;
+}
