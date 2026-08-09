@@ -16,9 +16,11 @@
     "start": "cross-env NODE_OPTIONS=--no-deprecation next start"
   },
   "dependencies": {
+    "@ant-design/icons": "^6.3.2",
     "@payloadcms/db-postgres": "^3.20.0",
     "@payloadcms/next": "^3.20.0",
     "@payloadcms/richtext-lexical": "^3.20.0",
+    "antd": "^6.5.4",
     "croner": "^9.0.0",
     "cross-env": "^7.0.3",
     "dotenv": "^16.4.7",
@@ -28,6 +30,7 @@
     "pinyin-pro": "^3.28.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "recharts": "^3.10.1",
     "sharp": "^0.33.0"
   },
   "devDependencies": {
