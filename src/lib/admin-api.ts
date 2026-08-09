@@ -1,12 +1,33 @@
 const API_BASE = ''
+const TOKEN_KEY = 'payload_admin_token'
+
+function loadToken(): string | null {
+  if (typeof window === 'undefined') return null
+  return localStorage.getItem(TOKEN_KEY)
+}
 
 let authToken: string | null = null
 
-export function setToken(token: string | null) {
-  authToken = token
+// Initialize from localStorage on module load (client-side only)
+if (typeof window !== 'undefined') {
+  authToken = loadToken()
 }
 
-export function getToken() {
+export function setToken(token: string | null) {
+  authToken = token
+  if (typeof window !== 'undefined') {
+    if (token) {
+      localStorage.setItem(TOKEN_KEY, token)
+    } else {
+      localStorage.removeItem(TOKEN_KEY)
+    }
+  }
+}
+
+export function getToken(): string | null {
+  if (!authToken && typeof window !== 'undefined') {
+    authToken = loadToken()
+  }
   return authToken
 }
 

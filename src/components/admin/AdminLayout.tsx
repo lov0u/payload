@@ -22,7 +22,7 @@ import {
   BellOutlined,
 } from '@ant-design/icons'
 import { useRouter, usePathname } from 'next/navigation'
-import { logout, getToken, getOne } from '@/lib/admin-api'
+import { logout, getToken, setToken, getOne } from '@/lib/admin-api'
 
 const { Header, Sider, Content } = Layout
 const { Text } = Typography
@@ -62,13 +62,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const pathname = usePathname()
 
   useEffect(() => {
-    if (!getToken()) {
+    const token = getToken()
+    if (!token) {
       router.replace('/login-antd')
       return
     }
     getOne('users', 'me').then(data => {
       setUser(data.user || data)
-    }).catch(() => {})
+    }).catch(() => {
+      // Token invalid or expired — clear and redirect to login
+      setToken(null)
+      router.replace('/login-antd')
+    })
   }, [])
 
   const handleMenuClick = ({ key }: { key: string }) => router.push(key)
