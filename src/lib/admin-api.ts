@@ -92,13 +92,45 @@ export async function remove(collection: string, id: string | number) {
 // Build article frontend URL: https://domain/news|articles/slug
 const ARTICLES_PREFIX_SITES = new Set(['lov0u', 'yushitou'])
 
+// Site cache: id → { domain, slug }, for depth=0 queries where site is just a number
+interface SiteInfo { domain: string; slug: string }
+const siteCache = new Map<number, SiteInfo>()
+let siteCacheLoaded = false
+
+async function ensureSiteCache(): Promise<void> {
+  if (siteCacheLoaded) return
+  try {
+    const res = await request('/api/sites?limit=50')
+    const docs = res.docs || []
+    for (const s of docs) {
+      siteCache.set(s.id, { domain: s.domain || '', slug: s.slug || '' })
+    }
+  } catch { /* fallback: cache stays empty, URL will have no domain */ }
+  siteCacheLoaded = true
+}
+
+// Prime cache on module load
+if (typeof window !== 'undefined') {
+  ensureSiteCache()
+}
+
 export function getArticleUrl(article: Record<string, unknown>): string {
-  const site = article.site as Record<string, string> | undefined
-  const domain = site?.domain || ''
-  const slug = (article.slug || article.id) as string
-  const siteSlug = site?.slug || ''
+  const siteRaw = article.site
+  let siteInfo: SiteInfo | undefined
+
+  if (siteRaw && typeof siteRaw === 'object') {
+    const s = siteRaw as Record<string, string>
+    siteInfo = { domain: s.domain || '', slug: s.slug || '' }
+  } else if (siteRaw !== undefined && siteRaw !== null) {
+    // site is just an ID (depth=0 query)
+    siteInfo = siteCache.get(Number(siteRaw))
+  }
+
+  const domain = siteInfo?.domain || ''
+  const siteSlug = siteInfo?.slug || ''
+  const articleSlug = (article.slug || article.id) as string
   const prefix = ARTICLES_PREFIX_SITES.has(siteSlug) ? 'articles' : 'news'
-  return `https://${domain}/${prefix}/${slug}`
+  return `https://${domain}/${prefix}/${articleSlug}`
 }
 
 // File upload (FormData, no JSON content-type)
