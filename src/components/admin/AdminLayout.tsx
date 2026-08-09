@@ -63,7 +63,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     if (!getToken()) {
-      router.replace('/login')
+      router.replace('/login-antd')
       return
     }
     getOne('users', 'me').then(data => {
@@ -75,7 +75,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   const handleLogout = async () => {
     logout()
-    router.replace('/login')
+    router.replace('/login-antd')
   }
 
   const userMenuItems = {
