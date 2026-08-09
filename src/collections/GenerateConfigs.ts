@@ -8,6 +8,7 @@ export const GenerateConfigs: CollectionConfig = {
     plural: '生成配置管理',
   },
   admin: {
+    group: '生成引擎',
     useAsTitle: 'name',
     description: '生成器配置',
     defaultColumns: ['name', 'site', 'enabled', 'dailyCount', 'cronExpression'],

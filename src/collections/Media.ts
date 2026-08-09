@@ -10,6 +10,7 @@ export const Media: CollectionConfig = {
     plural: '媒体库',
   },
   admin: {
+    group: '内容',
     useAsTitle: 'filename',
   },
   upload: {

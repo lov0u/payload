@@ -10,6 +10,7 @@ export const Categories: CollectionConfig = {
     plural: '文章分类',
   },
   admin: {
+    group: '内容',
     useAsTitle: 'name',
     description: '文章分类',
   },

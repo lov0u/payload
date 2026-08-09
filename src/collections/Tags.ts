@@ -10,6 +10,7 @@ export const Tags: CollectionConfig = {
     plural: '文章标签',
   },
   admin: {
+    group: '内容',
     useAsTitle: 'name',
     description: '文章标签',
   },

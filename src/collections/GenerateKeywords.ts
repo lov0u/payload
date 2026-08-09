@@ -7,6 +7,7 @@ export const GenerateKeywords: CollectionConfig = {
     plural: '关键词管理',
   },
   admin: {
+    group: '生成引擎',
     useAsTitle: 'keyword',
     description: '关键词管理',
     defaultColumns: ['keyword', 'keywordType', 'status', 'site', 'sourceType'],

@@ -7,6 +7,7 @@ export const ModelUsageLogs: CollectionConfig = {
     plural: '模型调用日志',
   },
   admin: {
+    group: '模型',
     useAsTitle: 'id',
     description: '记录每次模型调用的详细信息',
     defaultColumns: ['modelApi', 'status', 'tokens', 'duration', 'createdAt'],

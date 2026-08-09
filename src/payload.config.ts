@@ -25,6 +25,9 @@ const dirname = path.dirname(filename)
 export default buildConfig({
   admin: {
     user: Users.slug,
+    meta: {
+      titleSuffix: ' | Payload 管理后台',
+    },
     importMap: {
       baseDir: path.resolve(dirname),
     },

@@ -7,6 +7,7 @@ export const GenerateLogs: CollectionConfig = {
     plural: '生成日志管理',
   },
   admin: {
+    group: '生成引擎',
     useAsTitle: 'id',
     description: '生成日志',
     defaultColumns: ['id', 'site', 'status', 'keyword', 'createdAt'],

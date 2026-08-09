@@ -10,6 +10,7 @@ export const Sites: CollectionConfig = {
     plural: '站点管理',
   },
   admin: {
+    group: '系统',
     useAsTitle: 'name',
     description: '站点管理',
   },

@@ -7,6 +7,7 @@ export const Users: CollectionConfig = {
     plural: '用户管理',
   },
   admin: {
+    group: '系统',
     useAsTitle: 'email',
   },
   auth: true,

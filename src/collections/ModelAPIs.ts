@@ -7,6 +7,7 @@ export const ModelAPIs: CollectionConfig = {
     plural: '模型API管理',
   },
   admin: {
+    group: '模型',
     useAsTitle: 'name',
     description: '管理多个AI模型API配置，支持故障切换',
     defaultColumns: ['name', 'model', 'apiUrl', 'order', 'enabled', 'totalCalls', 'successRate'],

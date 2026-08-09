@@ -24,6 +24,7 @@ export const Articles: CollectionConfig = {
     plural: '文章管理',
   },
   admin: {
+    group: '内容',
     useAsTitle: 'title',
     description: '文章管理',
     defaultColumns: ['title', 'site', 'status', 'publishedAt'],
