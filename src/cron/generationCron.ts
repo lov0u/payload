@@ -89,16 +89,18 @@ export async function initGenerationCron(payload: Payload) {
             collection: 'articles',
             where: {
               site: { equals: siteId },
-              status: { equals: 'draft' },
+              _status: { equals: 'draft' },
             },
-            limit: 100,
+            limit: 500,
           })
 
           for (const draft of drafts) {
             await payload.update({
               collection: 'articles',
               id: draft.id,
+              draft: false,
               data: {
+                _status: 'published',
                 status: 'published',
                 publishedAt: new Date().toISOString(),
               },
