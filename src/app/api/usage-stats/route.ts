@@ -16,9 +16,11 @@ export async function GET(request: Request) {
 
     const payload = await getPayload({ config: configPromise })
 
-    const since = new Date()
-    since.setDate(since.getDate() - days)
-    since.setHours(0, 0, 0, 0)
+    // 按北京时间（UTC+8）划定统计起点，避免容器 UTC 时区导致每日聚合偏移 8 小时
+    const bjSince = new Date(Date.now() + 8 * 60 * 60 * 1000)
+    bjSince.setDate(bjSince.getDate() - days)
+    bjSince.setHours(0, 0, 0, 0)
+    const since = new Date(bjSince.getTime() - 8 * 60 * 60 * 1000)
 
     const { docs } = await payload.find({
       collection: 'model-usage-logs',
@@ -36,8 +38,9 @@ export async function GET(request: Request) {
     let totalSuccess = 0
     let totalTokens = 0
     for (const log of docs as any[]) {
-      const d = new Date(log.createdAt)
-      const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      // 用北京时间（UTC+8）归属日期，与 since 口径一致
+      const bj = new Date(new Date(log.createdAt).getTime() + 8 * 60 * 60 * 1000)
+      const day = `${bj.getFullYear()}-${String(bj.getMonth() + 1).padStart(2, '0')}-${String(bj.getDate()).padStart(2, '0')}`
       if (!byDay[day]) byDay[day] = { total: 0, success: 0, failed: 0, tokens: 0 }
       byDay[day].total++
       if (log.status === 'success') byDay[day].success++
@@ -53,7 +56,7 @@ export async function GET(request: Request) {
     // 补齐区间内无调用的日期，保证趋势连续
     const daily: any[] = []
     for (let i = 0; i < days; i++) {
-      const d = new Date(since)
+      const d = new Date(bjSince)
       d.setDate(d.getDate() + i)
       const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
       const rec = byDay[day] || { total: 0, success: 0, failed: 0, tokens: 0 }

@@ -35,8 +35,10 @@ export async function GET() {
           where: { site: { equals: site.id } },
         })
 
-        const today = new Date()
-        today.setHours(0, 0, 0, 0)
+        // 按北京时间（UTC+8）划定“今日”起点，避免容器 UTC 时区导致每日统计偏移 8 小时
+        const bjNow = new Date(Date.now() + 8 * 60 * 60 * 1000)
+        bjNow.setHours(0, 0, 0, 0)
+        const today = new Date(bjNow.getTime() - 8 * 60 * 60 * 1000)
         const todayGenerated = await payload.count({
           collection: 'generate-logs',
           where: {
