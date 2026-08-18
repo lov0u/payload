@@ -26,7 +26,8 @@ export async function initGenerationCron(payload: Payload) {
     for (const config of configs) {
       const siteId = (config.site as any)?.id || config.site
       const cronExpr = (config.cronExpression as string) || '0 0 2 * * *'
-      const dailyCount = (config.dailyCount as number) || 20
+      // 注意：用 ?? 而非 ||，否则 dailyCount=0（用户主动停用）会被默认值 20 覆盖
+      const dailyCount = (config.dailyCount as number) ?? 20
 
       const jobKey = `site-${siteId}-config-${config.id}`
 
@@ -35,6 +36,10 @@ export async function initGenerationCron(payload: Payload) {
           name: jobKey,
           timezone: 'Asia/Shanghai',
         }, async () => {
+          if (dailyCount <= 0) {
+            console.log(`[Cron] 站点 ${siteId} 配置 ${config.id} 每日生成数量为 0，跳过生成`)
+            return
+          }
           console.log(`[Cron] 触发站点 ${siteId} 生成任务，配置 ${config.id}，数量 ${dailyCount}`)
 
           try {
@@ -149,7 +154,8 @@ export async function refreshCronForConfig(configId: string | number, payload: P
     if (config && config.enabled) {
       const siteId = (config.site as any)?.id || config.site
       const cronExpr = (config.cronExpression as string) || '0 0 2 * * *'
-      const dailyCount = (config.dailyCount as number) || 20
+      // 注意：用 ?? 而非 ||，否则 dailyCount=0（用户主动停用）会被默认值 20 覆盖
+      const dailyCount = (config.dailyCount as number) ?? 20
       const jobKey = `site-${siteId}-config-${config.id}`
 
       const job = new Cron(cronExpr, {

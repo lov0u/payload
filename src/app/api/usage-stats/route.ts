@@ -31,16 +31,21 @@ export async function GET(request: Request) {
     })
 
     // 按本地日期聚合
-    const byDay: Record<string, { total: number; success: number; failed: number }> = {}
+    const byDay: Record<string, { total: number; success: number; failed: number; tokens: number }> = {}
     let total = 0
     let totalSuccess = 0
+    let totalTokens = 0
     for (const log of docs as any[]) {
       const d = new Date(log.createdAt)
       const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-      if (!byDay[day]) byDay[day] = { total: 0, success: 0, failed: 0 }
+      if (!byDay[day]) byDay[day] = { total: 0, success: 0, failed: 0, tokens: 0 }
       byDay[day].total++
       if (log.status === 'success') byDay[day].success++
       else byDay[day].failed++
+      if (typeof log.tokens === 'number' && log.tokens > 0) {
+        byDay[day].tokens += log.tokens
+        totalTokens += log.tokens
+      }
       total++
       if (log.status === 'success') totalSuccess++
     }
@@ -51,12 +56,13 @@ export async function GET(request: Request) {
       const d = new Date(since)
       d.setDate(d.getDate() + i)
       const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-      const rec = byDay[day] || { total: 0, success: 0, failed: 0 }
+      const rec = byDay[day] || { total: 0, success: 0, failed: 0, tokens: 0 }
       daily.push({
         date: day,
         total: rec.total,
         success: rec.success,
         failed: rec.failed,
+        tokens: rec.tokens,
         successRate: rec.total > 0 ? Number(((rec.success / rec.total) * 100).toFixed(2)) : 100,
       })
     }
@@ -70,6 +76,7 @@ export async function GET(request: Request) {
         total,
         success: totalSuccess,
         failed: total - totalSuccess,
+        totalTokens,
         avgSuccessRate,
         days,
       },
