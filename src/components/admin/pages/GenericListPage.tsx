@@ -7,11 +7,11 @@ import {
 } from 'antd'
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined,
-  ReloadOutlined,
+  ReloadOutlined, ApiOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
 import type { FilterValue, SorterResult } from 'antd/es/table/interface'
-import { getList, getOne, remove, update, create } from '@/lib/admin-api'
+import { getList, getOne, remove, update, create, getToken } from '@/lib/admin-api'
 
 const { Title } = Typography
 
@@ -51,10 +51,12 @@ interface GenericListPageProps {
   sortField?: string
   hideCreate?: boolean
   onRowClick?: (record: Record<string, unknown>) => void
+  // 可选：在操作列追加「测试」按钮，调用指定 API 验证该条记录（如模型连通性）
+  testButton?: { api: string; label?: string }
 }
 
 export default function GenericListPage(props: GenericListPageProps) {
-  const { collection, title, columns, filterFields, formFields, sortField, hideCreate, onRowClick } = props
+  const { collection, title, columns, filterFields, formFields, sortField, hideCreate, onRowClick, testButton } = props
 
   const [data, setData] = useState<Record<string, unknown>[]>([])
   const [loading, setLoading] = useState(true)
@@ -70,6 +72,11 @@ export default function GenericListPage(props: GenericListPageProps) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [modalLoading, setModalLoading] = useState(false)
   const [form] = Form.useForm()
+
+  // 测试按钮状态
+  const [testingId, setTestingId] = useState<string | number | null>(null)
+  const [testResultOpen, setTestResultOpen] = useState(false)
+  const [testResult, setTestResult] = useState<{ ok: boolean; text: string }>({ ok: false, text: '' })
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -163,6 +170,30 @@ export default function GenericListPage(props: GenericListPageProps) {
   const handleSearch = () => fetchData()
   const handleReset = () => { setFilters({}); setPage(1) }
 
+  const handleTest = async (record: Record<string, unknown>) => {
+    if (!testButton) return
+    setTestingId(record.id as string)
+    try {
+      const res = await fetch(testButton.api, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(getToken() ? { Authorization: `JWT ${getToken()}` } : {}) },
+        body: JSON.stringify({ id: record.id }),
+      })
+      const data = await res.json().catch(() => ({}))
+      const ok = data?.success === true
+      const text = ok
+        ? `✅ 连通成功\n模型：${data.model}\n耗时：${data.latencyMs}ms\n${data.usage ? `Token：${JSON.stringify(data.usage)}` : ''}\n返回示例：${data.sample || ''}`
+        : `❌ 调用失败\n${data?.error || `HTTP ${res.status}`}`
+      setTestResult({ ok, text })
+      setTestResultOpen(true)
+    } catch (e: unknown) {
+      setTestResult({ ok: false, text: `❌ 请求异常：${e instanceof Error ? e.message : String(e)}` })
+      setTestResultOpen(true)
+    } finally {
+      setTestingId(null)
+    }
+  }
+
   // Build table columns with actions
   const tableColumns: ColumnsType<Record<string, unknown>> = [
     ...columns.map(col => ({
@@ -179,6 +210,18 @@ export default function GenericListPage(props: GenericListPageProps) {
       width: 160,
       render: (_: unknown, record: Record<string, unknown>) => (
         <Space size={8}>
+          {testButton && (
+            <Button
+              type="link"
+              size="small"
+              icon={<ApiOutlined />}
+              style={{ color: '#52C41A', padding: 0 }}
+              loading={testingId === record.id}
+              onClick={() => handleTest(record)}
+            >
+              {testButton.label || '测试'}
+            </Button>
+          )}
           <Button
             type="link"
             size="small"
@@ -335,6 +378,27 @@ export default function GenericListPage(props: GenericListPageProps) {
           </Form>
         </Modal>
       )}
+
+      {/* ====== 测试结果弹窗 ====== */}
+      <Modal
+        title="连通性测试结果"
+        open={testResultOpen}
+        onOk={() => setTestResultOpen(false)}
+        onCancel={() => setTestResultOpen(false)}
+        okText="知道了"
+        cancelButtonProps={{ style: { display: 'none' } }}
+        width={520}
+      >
+        <pre style={{
+          margin: 0,
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-all',
+          fontFamily: 'inherit',
+          fontSize: 14,
+          lineHeight: 1.7,
+          color: testResult.ok ? '#389E0D' : '#CF1322',
+        }}>{testResult.text}</pre>
+      </Modal>
     </div>
   )
 }
