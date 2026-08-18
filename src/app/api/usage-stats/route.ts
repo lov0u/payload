@@ -18,7 +18,7 @@ export async function GET(request: Request) {
 
     // 按北京时间（UTC+8）划定统计起点，避免容器 UTC 时区导致每日聚合偏移 8 小时
     const bjSince = new Date(Date.now() + 8 * 60 * 60 * 1000)
-    bjSince.setDate(bjSince.getDate() - days)
+    bjSince.setDate(bjSince.getDate() - (days - 1)) // 含今天，共 days 天
     bjSince.setHours(0, 0, 0, 0)
     const since = new Date(bjSince.getTime() - 8 * 60 * 60 * 1000)
 
