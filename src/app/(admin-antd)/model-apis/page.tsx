@@ -11,5 +11,5 @@ const ff: FormField[] = [
   { name: 'order', label: '排序', type: 'number' },
 ]
 export default function ModelApisPage() {
-  return <GenericListPage collection="model-apis" title="模型API" columns={cols} formFields={ff} testButton={{ api: '/api/model-apis/test', label: '测试' }} />
+  return <GenericListPage collection="model-apis" title="模型API" columns={cols} formFields={ff} testButton={{ api: '/api/model-test', label: '测试' }} />
 }

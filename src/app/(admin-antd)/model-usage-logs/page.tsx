@@ -34,7 +34,7 @@ export default function ModelUsageLogsPage() {
   const load = async (d: number) => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/model-usage-logs/daily?days=${d}`, {
+      const res = await fetch(`/api/usage-stats?days=${d}`, {
         headers: { ...(getToken() ? { Authorization: `JWT ${getToken()}` } : {}) },
       })
       const data = await res.json()
